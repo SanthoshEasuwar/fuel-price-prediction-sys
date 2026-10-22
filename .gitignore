@@ -1,12 +1,11 @@
+@"
 __pycache__/
+*.pyc
 .pytest_cache/
-*.py[cod]
 .venv/
 venv/
-Data/cache/
-Data/market_inputs.csv
-Data/users.sqlite3
-Data/users.sqlite3-shm
-Data/users.sqlite3-wal
 .env
 .streamlit/secrets.toml
+Data/users.sqlite3
+Data/cache/
+"@ | Out-File -Encoding utf8 .gitignore
