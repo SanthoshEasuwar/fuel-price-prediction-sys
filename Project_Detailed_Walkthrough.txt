@@ -1,0 +1,261 @@
+﻿FUEL PRICE PREDICTION SYSTEM
+DETAILED PROJECT WALKTHROUGH
+
+======================================================================
+1. WHAT THE PROJECT DOES
+======================================================================
+
+This project is a web dashboard for examining petrol and diesel prices in four Indian cities: Chennai, Delhi, Kolkata, and Mumbai. It combines a prepared historical price dataset with latest published observations from API Mitra. Users can inspect historical trends, analyze revisions, view saved model evaluations, simulate future revision ranges, and explore market-shock scenarios.
+
+The interface is built in Streamlit. It runs as a Python web application. Streamlit executes the Python page code when a user interacts with a control; the pages load data, calculate summaries or simulations, and render charts and tables in the browser.
+
+The app is a decision-support and educational project. Its forecasts are not official prices and cannot know in advance what oil companies or government authorities will decide.
+
+======================================================================
+2. HOW TO START AND CONFIGURE IT
+======================================================================
+
+From the project directory:
+
+    python -m pip install -r requirements.txt
+    python -m streamlit run app.py
+
+The app needs Data/fuel_prices_model_ready.csv for historical analysis. To request latest prices from API Mitra, configure the FUEL_PRICE_API_KEY environment variable in the environment running Streamlit. The request sends this key in the x-api-key HTTP header. An optional FUEL_PRICE_API_BASE_URL environment variable can override the API base address.
+
+Do not put API keys into source code or commit them. The GitHub Actions collector uses a repository Actions secret named FUEL_PRICE_API_KEY.
+
+Main dependencies:
+- Python
+- Streamlit for the web interface and session state
+- pandas and NumPy for loading, transforming, and analyzing data
+- scikit-learn for the event-response regression model
+- Plotly for interactive charts
+- SQLite from Python's standard library for local account records
+
+======================================================================
+3. APPLICATION STARTUP AND LOGIN FLOW
+======================================================================
+
+1. Streamlit starts app.py, which configures the page layout and shared dark theme.
+2. The app checks the current Streamlit session for an authenticated user.
+3. If the user is signed out, the login/sign-up form is displayed and the dashboard stops rendering until authentication succeeds.
+4. During sign-up, the app validates the email and password, creates a random salt, derives a PBKDF2-HMAC-SHA256 password hash, and inserts the account into Data/users.sqlite3.
+5. During login, the entered password is hashed using the stored salt and iteration count, then compared with the stored hash. The password itself is not saved.
+6. A successful login stores the user's public account identity in Streamlit session state. Login is session-based; it is not a general-purpose multi-server identity system.
+7. Protected pages use the same login requirement and provide a log-out action.
+
+The accounts feature is for a single-instance demo. All logged-in users see the same project data; it does not create private per-user datasets.
+
+======================================================================
+4. DATA SOURCES AND THE DIFFERENT FILES
+======================================================================
+
+A. PREPARED HISTORICAL DATA
+
+File: Data/fuel_prices_model_ready.csv
+
+This is the core historical input used for trends, change analysis, historical forecast simulation, and fallback prices. It contains daily city records and petrol/diesel price fields. It also contains prepared columns such as next-day target/change indicators, state VAT fields, and a long-freeze indicator. At the time this report was written, it had 13,640 records covering June 16, 2017 to October 16, 2026.
+
+The Streamlit pages read this CSV. They do not automatically replace it with the API response.
+
+B. LIVE PRICE PROVIDER
+
+Provider: API Mitra, a third-party service.
+Endpoint used by the app: GET https://api.apimitra.in/fuel/latest
+
+The fuel price service sends the API key in the request header, parses the JSON response, maps supported city names to the project's four city names, checks for duplicate rows, and validates that the prices are numeric and within broad allowed bounds. Invalid or unsupported rows are excluded; malformed responses are not silently repaired.
+
+File: Data/cache/latest_fuel_prices.json
+
+A successful live response is saved here with the provider name, source URL, observation/update timestamps, retrieval time, and city price records. The app reuses a successful response for up to 15 minutes unless the user presses a refresh button. The provider timestamp is separately checked: missing or older-than-36-hours observations are marked stale. If a refresh fails, the app can keep showing the last validated cached response and label it stale. If no response is cached, pages fall back to a dated observation in the historical CSV.
+
+This JSON cache is not the same thing as the daily collection CSV described below.
+
+C. DAILY COLLECTION CSV
+
+File: Data/live_prices.csv
+
+The scripts/collector.py command fetches fresh provider data, refuses to save stale data, and writes one row per date and city. Rerunning a collection for the same date updates that date/city row rather than creating a duplicate. The rows include price values, retrieval time, and provider update time.
+
+The GitHub Actions workflow in .github/workflows/collect.yml runs this collector each day at 07:00 IST and can also be run manually. When a successful run changes the CSV, the workflow commits and pushes the updated file. It requires the FUEL_PRICE_API_KEY GitHub repository secret.
+
+Important: the dashboard's live display currently calls the API service and uses its JSON cache. Data/live_prices.csv is the collector's historical output; it is not currently the dashboard's live data source.
+
+File: Data/daily_forecasts.csv
+
+The daily collector records the persistence estimate it makes for the next observation date, for each city and fuel. On a later run, when it receives a matching provider observation date, it fills in the actual price and calculates absolute error (absolute actual minus estimate) and percentage error. The workflow commits this file so the comparison history persists between runs. The collector upserts by target date/city/fuel to avoid duplicate rows if it is rerun.
+
+D. CRUDE AND CURRENCY HISTORY
+
+Sources: Brent crude from the EIA series published through FRED, and USD/INR from the Federal Reserve H.10 series published through FRED.
+
+File: Data/market_inputs.csv
+
+The Event Impact Forecast page fetches daily data for both series, forward-fills only short gaps, aggregates observations into monthly averages, and saves the resulting date, Brent price, and USD/INR values as CSV. If a later download fails, it attempts to use this saved snapshot. If both network refresh and local snapshot are unavailable, the event scenario cannot be calculated.
+
+E. ACCOUNTS AND SAVED EVALUATIONS
+
+File: Data/users.sqlite3
+
+SQLite database containing the users table. It stores the account email, password hash, and creation timestamp. It is local to the application instance.
+
+Folder: models/
+
+- final_evaluation_report_v1.csv: saved evaluation results by fuel/model.
+- model_comparison_v3.csv: saved comparison and validation results.
+- persistence_by_year_v1.csv: saved year-by-year persistence statistics.
+
+The Model Evaluation page displays these saved files. It does not retrain a model or modify them.
+
+======================================================================
+5. WHAT HAPPENS ON EACH PAGE
+======================================================================
+
+OVERVIEW - app.py
+
+- Loads and validates the historical CSV.
+- Requests latest provider prices through the fuel-price service.
+- Shows live/stale/unavailable state and source timestamps.
+- Shows price cards for the four cities, using provider prices when available and historical values otherwise.
+- Offers city and fuel filters for the historical plot.
+- Shows tomorrow's persistence baseline, which carries the latest available value forward.
+- Provides a historical price trend and a link to the event scenario page.
+
+ACCOUNT - pages/0_Account.py
+
+Shows account status and sign-in/sign-up functions. Account creation and password checks are implemented in services/auth_service.py.
+
+HISTORICAL TRENDS - pages/1_Historical_Trends.py
+
+- Reads the prepared historical CSV.
+- Filters by one or more cities, fuel type(s), and date range.
+- Creates an interactive Plotly line chart.
+- Calculates average, minimum, maximum, and record count for each chosen city/fuel pair.
+- Provides a CSV download of the selected chart data.
+
+PRICE CHANGE ANALYSIS - pages/2_Price_Change_Analysis.py
+
+- Sorts records by city and date.
+- Calculates the difference from the previous recorded row for that same city.
+- Counts increases, decreases, and unchanged observations for the selected filters.
+- Shows a distribution chart, a timeline of revisions, and the largest changes.
+- Provides a download of the filtered analysis.
+
+A difference in the dataset indicates a recorded price change; this analysis cannot determine why it changed.
+
+MODEL EVALUATION - pages/3_Model_Evaluation.py
+
+- Reads the three saved model CSV reports from models/.
+- Displays reported MAE and RMSE values and comparisons when present.
+- Explains the persistence baseline and chronological testing.
+- Does not train models or create new metrics when opened.
+
+TOMORROW'S PREDICTION - pages/4_Tomorrow_Prediction.py
+
+- Requests the latest provider price (or uses cached/stale result).
+- If no provider row exists for the selected city, finds the latest usable historical CSV row.
+- Displays the chosen input price as tomorrow's estimate.
+
+This is intentionally simple: estimated price = most recent available price. It does not forecast whether a revision occurs or its amount.
+
+The same page also has a daily accuracy section. Its historical chart reconstructs one-day persistence estimates from consecutive dates in the prepared CSV and compares them with the next recorded actual prices. It reports mean absolute error, root mean squared error, and the share that matched within Rs 0.01 per litre. This retrospective backtest is not a record of forecasts actually issued on those historical dates.
+
+The API-verified section reads Data/daily_forecasts.csv, charts saved estimate versus API actual, and charts absolute error by target date. Pressing "Refresh latest provider prices" forces a provider request and, when the result is fresh, immediately reconciles the matching target date and creates the next persistence estimate. The scheduled collector performs the same operation daily. If no successful API collection or manual refresh has occurred yet, the page explains that the tracker has no observations.
+
+DATA SOURCES AND METHODOLOGY - pages/5_Data_Sources.py
+
+Shows provider identity, endpoint, cache and freshness behavior, which cities were returned, historical coverage, official reference links, and the limitations of the price estimate.
+
+PRICE FORECAST - pages/6_Price_Forecast.py
+
+This page is different from the event scenario page. It estimates a range of possible revisions using past price behavior:
+
+1. The user chooses cities, petrol/diesel, horizon, historical lookback window, and range width.
+2. For each fuel, the service calculates consecutive percentage changes by city.
+3. It pools city observations for the selected historical window to estimate the chance of a change on a recorded city-day and the sizes of non-zero changes.
+4. It simulates 5,000 paths. For each simulated day, a revision occurs with the estimated probability; the revision size is sampled from the observed historical changes.
+5. It displays the median and selected percentile band, plus the simulated chance of at least one revision.
+
+The dashed median path uses the current price as the persistence forecast. The range describes outcomes generated from historical revision behavior. It can lean upward if the selected period had mostly increases; that is not evidence that prices must rise in the future.
+
+EVENT IMPACT FORECAST - pages/7_Event_Impact_Forecast.py
+
+This page asks the user to select scenario name, city, fuel, forecast horizon, assumed Brent percentage change, assumed USD/INR percentage change, event duration, and historical response regime.
+
+The user assumptions represent the market shock. The scenario text (for example, "War") is only a label; the application cannot infer an oil-price shock just from that label.
+
+Scenario calculation, in broad steps:
+
+1. Load the historical fuel prices and monthly Brent/USD-INR data.
+2. Convert city prices to monthly observations and calculate monthly price changes.
+3. Build macroeconomic features from monthly Brent and exchange-rate movements, plus prior retail movement and a freeze indicator.
+4. Fit a regularized Ridge regression model to estimate next-month price movement. Chronologically reserve the latest 18 months for validation.
+5. Compare its holdout mean absolute error (MAE) with a flat/no-change persistence baseline. The validation trust value is clipped between zero and 75 percent; if the learned response did worse than persistence, its trust can be zero.
+6. Separately calculate historical retail pass-through estimates. For each regime, fit a descriptive no-intercept slope of next-month retail percentage changes against changes in Brent priced in INR. The regimes are historical oil-shock periods (before 2023), full history, and recent pricing period (2023 onward). These are historical associations, not causal guarantees.
+7. Split the assumed total Brent and currency changes evenly across the chosen event duration (using compounded monthly changes). For each forecast month during the event, combine Brent and USD/INR movements into an INR crude-cost change.
+8. Apply the selected historical pass-through coefficient to that monthly crude-cost change. Add it to the trusted model baseline component. This explicit event effect is retained even when model validation trust is zero, so a positive assumed crude-cost shock can produce an increase in the scenario price.
+9. Sample holdout residual errors around their median to produce 2,500 scenario paths. Display the median path and 10th-to-90th percentile range (an 80% band).
+10. Compare the scenario against a no-shock path and show the assumed shock and selected pass-through response.
+
+This page makes an assumption-driven estimate, not a precise prediction of what a particular war, disaster, or policy response will do. Governments or oil companies may delay, reduce, or avoid pump-price changes. Taxes, subsidies, refinery issues, transport disruptions, and domestic supply effects are not fully represented by Brent and currency inputs.
+
+======================================================================
+6. IMPORTANT FORECAST TERMS
+======================================================================
+
+Persistence baseline:
+Carry forward the latest known price. If the last price is Rs 100 per litre, the baseline for tomorrow remains Rs 100 per litre.
+
+MAE (Mean Absolute Error):
+Average absolute difference between estimated and recorded values. Lower MAE means smaller average errors on the evaluated sample, but it does not prove that the model can predict the timing of rare price revisions.
+
+Holdout / chronological validation:
+A later time period kept apart from fitting, used to estimate how the model performs on unseen future-like observations.
+
+Pass-through estimate:
+An empirical historical relationship between INR-priced crude-cost movement and next-month retail price movement. It is descriptive and can be affected by administered prices, taxes, price freezes, policy, and other factors.
+
+Uncertainty range:
+A range of simulated outcomes generated from historical observations or holdout errors. It is not a guarantee that the actual future price will fall inside it.
+
+======================================================================
+7. PROJECT SOURCE TREE
+======================================================================
+
+app.py                         Main dashboard page
+pages/0_Account.py             Account screen
+pages/1_Historical_Trends.py   Historical charts/statistics
+pages/2_Price_Change_Analysis.py Price revision analysis
+pages/3_Model_Evaluation.py    Saved model reports
+pages/4_Tomorrow_Prediction.py Persistence estimate
+pages/5_Data_Sources.py        Sources and methodology
+pages/6_Price_Forecast.py      Historical revision simulation
+pages/7_Event_Impact_Forecast.py Market-shock scenario
+services/auth_service.py       SQLite accounts and session authentication
+services/fuel_price_service.py API Mitra fetch, validation, freshness, JSON cache
+services/forecast_service.py   Historical revision simulation
+services/event_forecast_service.py FRED market data and event scenario calculations
+services/ui.py                 Shared visual theme
+scripts/collector.py           Daily API collector for live_prices.csv
+models/                         Saved evaluation CSVs
+Data/                            Historical, account, market, cache, and live data
+.github/workflows/collect.yml  Scheduled collector workflow
+.streamlit/config.toml          Streamlit theme configuration
+requirements.txt                Python dependencies
+tests/                           Project test files
+README.md                        Project setup and summary
+Project_Report.txt               Project summary and inventory
+
+======================================================================
+8. SECURITY, OPERATIONS, AND LIMITATIONS
+======================================================================
+
+- API keys should be set as environment variables or GitHub Actions secrets, never committed in source files.
+- Data/cache/, Data/market_inputs.csv, and Data/users.sqlite3 are ignored by Git in this project.
+- Data/daily_forecasts.csv is committed by the scheduled collector workflow so API-verified forecast errors accumulate in the repository.
+- The scheduled workflow needs repository write permission to commit Data/live_prices.csv changes.
+- The account database is local and suitable only for the current single-instance demonstration setup; multi-instance deployments need shared storage and stronger identity management.
+- Provider availability, accuracy, and licensing depend on API Mitra.
+- FRED downloads need internet access. A local market snapshot can support a later refresh failure.
+- Historical correlation does not determine future policy or retail prices.
+- The historical dataset, API cache, collector CSV, and market inputs serve different purposes; they are not one automatically synchronized database.

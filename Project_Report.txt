@@ -1,0 +1,125 @@
+﻿FUEL PRICE PREDICTION SYSTEM
+PROJECT REPORT
+
+1. PROJECT OVERVIEW
+
+This is a Python web dashboard built with Streamlit. It displays published petrol and diesel prices for four Indian cities, analyzes historical price changes, provides forecast views, and lets users explore how assumed crude-oil and USD/INR changes could affect future prices.
+
+The dashboard requires users to sign in. Account information is stored in a local SQLite database. Price and market history are stored separately in CSV files.
+
+2. TECHNOLOGY STACK
+
+- Language: Python
+- Web interface: Streamlit
+- Data handling: pandas and NumPy
+- Machine learning: scikit-learn (Ridge regression and preprocessing pipelines)
+- Charts: Plotly
+- Account storage: SQLite
+- Live fuel prices: API Mitra API
+- Crude and exchange-rate history: FRED data (Brent crude and USD/INR)
+- Scheduled price collection: GitHub Actions
+- Python dependencies are listed in requirements.txt. Package versions are not pinned.
+
+3. DASHBOARD PAGES
+
+- Overview: latest published prices, historical snapshot, city and fuel selection, baseline estimate, and price trend.
+- Account: sign up, log in, and log out.
+- Historical Trends: filter, compare, chart, and export historical prices.
+- Price Change Analysis: inspect price revisions, their distribution, and larger changes.
+- Model Evaluation: view saved evaluation reports and comparisons.
+- Tomorrow Prediction: show a persistence estimate, where tomorrow's price equals the latest available price.
+- Data Sources: describe data sources, coverage, and methodology.
+- Price Forecast: simulate a range of possible price paths using historical revision frequency and size.
+- Event Impact Forecast: estimate a scenario from user-assumed Brent and USD/INR changes, with a historical response estimate and uncertainty range.
+
+The event page treats the event name as a label. Its numerical market assumptions, rather than words such as war or disaster, drive the scenario calculation.
+
+4. PROJECT FILES AND DATA STORAGE
+
+PRICE AND MARKET DATA
+
+Data/fuel_prices_model_ready.csv
+Main historical dataset. At the time of review, it contains 13,640 records from June 16, 2017 to October 16, 2026 for Chennai, Delhi, Kolkata, and Mumbai. It includes petrol and diesel prices plus prepared price-change and freeze-related columns.
+
+Data/live_prices.csv
+Daily collector output containing city prices and retrieval/provider timestamps. The collector and scheduled workflow write this file. The dashboard's live display currently uses the API response cache; its historical fallback uses fuel_prices_model_ready.csv.
+
+Data/cache/latest_fuel_prices.json
+Cache for validated API Mitra responses, including prices and timestamps. Successful responses are reused for up to 15 minutes. The cache directory is excluded from Git.
+
+Data/market_inputs.csv
+Monthly Brent crude and USD/INR history for Event Impact Forecast. The page refreshes it from FRED and uses this local snapshot if a later refresh fails. This file is excluded from Git.
+
+ACCOUNTS AND MODEL REPORTS
+
+Data/users.sqlite3
+SQLite database for project accounts. At the time of review, it contains one user record. Passwords are stored as salted PBKDF2-SHA256 hashes, not plain text.
+
+models/final_evaluation_report_v1.csv
+Saved final evaluation results by fuel and model.
+
+models/model_comparison_v3.csv
+Saved model comparison and validation metrics.
+
+models/persistence_by_year_v1.csv
+Year-by-year persistence baseline statistics.
+
+The models/ CSV reports are read by the Model Evaluation page. The dashboard does not overwrite or retrain those saved reports.
+
+CODE AND CONFIGURATION
+
+app.py
+Main Streamlit overview/dashboard.
+
+pages/
+Individual Streamlit dashboard pages.
+
+services/
+Authentication, data retrieval, forecasting, event scenarios, and shared UI code.
+
+scripts/collector.py
+Fetches provider prices and appends them to Data/live_prices.csv.
+
+.github/workflows/collect.yml
+GitHub Actions workflow scheduled to collect prices daily. It can also be triggered manually.
+
+.streamlit/config.toml
+Streamlit theme configuration.
+
+tests/
+Tests for account, collector, and fuel-price service behavior.
+
+.gitignore
+Excludes local caches, account database files, environment files, and the market-data snapshot.
+
+5. HOW DATA IS FETCHED AND STORED
+
+LIVE FUEL PRICES
+The app requests GET /fuel/latest from API Mitra. The API key is read from the FUEL_PRICE_API_KEY environment variable and sent in the x-api-key request header. The key is not intended to be stored in source files. The app validates returned cities and prices, then caches successful results in Data/cache/latest_fuel_prices.json. Old or undated provider data is marked stale. If no live result is available, the app can use dated historical data.
+
+SCHEDULED COLLECTION
+The GitHub Actions workflow runs scripts/collector.py daily. It reads the API key from the repository's GitHub Actions secret named FUEL_PRICE_API_KEY and writes observations to Data/live_prices.csv.
+
+MARKET HISTORY
+Event Impact Forecast downloads Brent crude and USD/INR series from FRED, converts them to monthly data, and saves Data/market_inputs.csv for fallback use.
+
+ACCOUNTS
+New accounts are stored in Data/users.sqlite3. Login state is kept in the current Streamlit browser session.
+
+6. FORECASTING APPROACH
+
+TOMORROW'S ESTIMATE
+A persistence baseline carries the latest price forward. It does not predict whether or when an official price revision will happen.
+
+MULTI-DAY PRICE FORECAST
+Uses historical frequency and sizes of revisions to simulate a range of possible outcomes. It describes past revision behavior and cannot know future policy decisions.
+
+EVENT SCENARIO
+Combines assumed Brent and USD/INR movements with historically estimated Indian retail-price pass-through. It displays a scenario median and an 80% range. The result depends on the user's assumptions and is not a precise prediction of a specific event.
+
+7. LIMITATIONS
+
+- API Mitra is a third-party provider; data accuracy and sourcing depend on that provider.
+- Price history and account storage are local files. The account database is suited to a single-instance demo and is not a shared multi-server account system.
+- Forecast methods cannot anticipate government, tax, or oil-company decisions, or local supply disruptions.
+- Live provider data is cached separately from the historical dataset and from the collector's live_prices.csv output.
